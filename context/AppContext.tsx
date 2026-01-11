@@ -1,11 +1,12 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Product, AppConfig } from '../types';
+import { Product, AppConfig, Category } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { products as initialProducts } from '../data/products';
 
 interface AppContextType {
   products: Product[];
+  categories: Category[];
   config: AppConfig;
   loading: boolean;
   setProducts: (products: Product[]) => void;
@@ -13,12 +14,16 @@ interface AppContextType {
   addProduct: (product: Product) => Promise<void>;
   updateProduct: (product: Product) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
+  addCategory: (category: Category) => Promise<void>;
+  updateCategory: (category: Category) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [products, setProductsState] = useState<Product[]>([]);
+  const [categories, setCategoriesState] = useState<Category[]>([]);
   const [config, setConfigState] = useState<AppConfig>({
     logoUrl: 'https://pngimg.com/uploads/amazon/amazon_PNG11.png',
     heroImageUrl: 'https://picsum.photos/id/1015/1920/800',
@@ -28,7 +33,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchData = async () => {
     if (!isSupabaseConfigured) {
-      console.warn('Supabase is not configured properly in lib/supabase.ts');
       setProductsState(initialProducts);
       setLoading(false);
       return;
@@ -37,33 +41,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLoading(true);
     try {
       // 1. Fetch Products
-      const { data: productsData, error: pError } = await supabase
+      const { data: productsData } = await supabase
         .from('products')
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (pError) throw pError;
-      
-      // If Supabase has data, use it. Otherwise use the demo data as a starter.
-      if (productsData && productsData.length > 0) {
-        setProductsState(productsData);
-      } else {
-        setProductsState(initialProducts);
-      }
+      if (productsData && productsData.length > 0) setProductsState(productsData);
+      else setProductsState(initialProducts);
 
-      // 2. Fetch Config
-      const { data: configData, error: cError } = await supabase
+      // 2. Fetch Categories
+      const { data: categoriesData } = await supabase
+        .from('categories')
+        .select('*')
+        .order('created_at', { ascending: true });
+      
+      if (categoriesData) setCategoriesState(categoriesData);
+
+      // 3. Fetch Config
+      const { data: configData } = await supabase
         .from('app_config')
         .select('*')
         .eq('id', 1)
         .single();
       
-      if (cError && cError.code !== 'PGRST116') throw cError;
       if (configData) setConfigState(configData);
 
     } catch (error: any) {
-      console.error('Fetch Error:', error.message || error);
-      setProductsState(initialProducts);
+      console.error('Fetch Error:', error.message);
     } finally {
       setLoading(false);
     }
@@ -76,89 +80,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateConfig = async (newConfig: AppConfig) => {
     if (!isSupabaseConfigured) return;
     try {
-      const { error } = await supabase
-        .from('app_config')
-        .upsert({ id: 1, ...newConfig });
-      if (error) throw error;
+      await supabase.from('app_config').upsert({ id: 1, ...newConfig });
       setConfigState(newConfig);
-    } catch (error: any) {
-      alert(`Database Error: ${error.message}`);
-    }
+    } catch (error: any) { alert(error.message); }
   };
 
   const addProduct = async (product: Product) => {
     if (!isSupabaseConfigured) return;
     try {
-      // Ensure the product object matches the DB schema
-      const { error } = await supabase
-        .from('products')
-        .insert([{
-          id: product.id,
-          title: product.title,
-          price: product.price,
-          rating: product.rating,
-          reviewCount: product.reviewCount,
-          imageUrl: product.imageUrl,
-          category: product.category,
-          description: product.description,
-          brand: product.brand,
-          features: product.features,
-          isPrime: product.isPrime,
-          stockStatus: product.stockStatus,
-          buyNowUrl: product.buyNowUrl
-        }]);
-
-      if (error) throw error;
-      
-      // Refresh local state
+      await supabase.from('products').insert([product]);
       setProductsState(prev => [product, ...prev]);
-      console.log('Product added successfully');
-    } catch (error: any) {
-      console.error('Failed to add product:', error);
-      alert(`Could not save product: ${error.message}\n\nMake sure you ran the SQL in Supabase!`);
-    }
+    } catch (error: any) { alert(error.message); }
   };
 
   const updateProduct = async (updatedProduct: Product) => {
     if (!isSupabaseConfigured) return;
     try {
-      const { error } = await supabase
-        .from('products')
-        .update(updatedProduct)
-        .eq('id', updatedProduct.id);
-      
-      if (error) throw error;
+      await supabase.from('products').update(updatedProduct).eq('id', updatedProduct.id);
       setProductsState(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
-    } catch (error: any) {
-      alert(`Update failed: ${error.message}`);
-    }
+    } catch (error: any) { alert(error.message); }
   };
 
   const deleteProduct = async (id: string) => {
     if (!isSupabaseConfigured) return;
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
+      await supabase.from('products').delete().eq('id', id);
       setProductsState(prev => prev.filter(p => p.id !== id));
-    } catch (error: any) {
-      alert(`Delete failed: ${error.message}`);
-    }
+    } catch (error: any) { alert(error.message); }
+  };
+
+  const addCategory = async (category: Category) => {
+    try {
+      await supabase.from('categories').insert([category]);
+      setCategoriesState(prev => [...prev, category]);
+    } catch (error: any) { alert(error.message); }
+  };
+
+  const updateCategory = async (cat: Category) => {
+    try {
+      await supabase.from('categories').update(cat).eq('id', cat.id);
+      setCategoriesState(prev => prev.map(c => c.id === cat.id ? cat : c));
+    } catch (error: any) { alert(error.message); }
+  };
+
+  const deleteCategory = async (id: string) => {
+    try {
+      await supabase.from('categories').delete().eq('id', id);
+      setCategoriesState(prev => prev.filter(c => c.id !== id));
+    } catch (error: any) { alert(error.message); }
   };
 
   return (
     <AppContext.Provider value={{ 
-      products, 
-      config, 
-      loading, 
+      products, categories, config, loading, 
       setProducts: setProductsState, 
-      updateConfig, 
-      addProduct, 
-      updateProduct, 
-      deleteProduct 
+      updateConfig, addProduct, updateProduct, deleteProduct,
+      addCategory, updateCategory, deleteCategory
     }}>
       {children}
     </AppContext.Provider>
